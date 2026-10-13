@@ -1603,6 +1603,16 @@ html.page-navy .app-disclaimer button.disc-link, html.page-navy .bud-footer-link
 .exp-warn{font-size:12.5px; color:var(--warn); background:var(--warn-soft); padding:8px 10px; border-radius:9px; font-weight:600;}
 .exp-actions{display:flex; gap:10px; align-items:center;}
 .exp-actions .pay-btn{margin-left:0;}
+
+.bud-items{max-height:min(62vh,480px); overflow-y:auto; -webkit-overflow-scrolling:touch;}
+.bud-amt-btn{flex:0 0 auto; border:none; border-bottom:1px dashed var(--text-muted); background:none; color:var(--text); font:inherit; font-weight:700; font-variant-numeric:tabular-nums; padding:2px 0; cursor:pointer;}
+.bud-amt-btn:hover{color:var(--accent); border-bottom-color:var(--accent);}
+.bud-item.gone{opacity:.5;}
+.bud-edit{background:var(--surface-2); border-radius:12px; padding:12px; margin:4px 0 8px; display:flex; flex-direction:column; gap:8px;}
+.bud-edit-note{color:var(--text-muted); font-size:12.5px; line-height:1.45;}
+.bud-edit-actions{display:flex; flex-wrap:wrap; gap:8px; align-items:center;}
+.bud-removed{font-size:12.5px; color:var(--text-muted); padding:10px 0 2px;}
+.exp-paste-actions{display:flex; flex-wrap:wrap; gap:8px;}
 </style>
 </head>
 <body>
@@ -1845,7 +1855,7 @@ html.page-navy .app-disclaimer button.disc-link, html.page-navy .bud-footer-link
       <div class="exp-paste" id="expPasteWrap" hidden>
         <label style="gap:4px">Have a confirmation email? <small>Paste it here and tap “Find the total.” It never leaves your phone.</small>
           <textarea id="expPaste" placeholder="Paste the confirmation email text…"></textarea></label>
-        <button type="button" class="bud-btn" id="expFind">Find the total</button>
+        <div class="exp-paste-actions"><button type="button" class="bud-btn" id="expClip" hidden>Paste from clipboard</button><button type="button" class="bud-btn" id="expFind">Find the total</button></div>
         <div id="expCands"></div>
       </div>
       <div id="expMilesWrap" hidden><label>Round-trip miles<input type="number" inputmode="decimal" min="0" id="expMiles" class="cal-input" style="margin-top:0" placeholder="e.g. 140"><small id="expRateNote"></small></label></div>
@@ -1853,7 +1863,7 @@ html.page-navy .app-disclaimer button.disc-link, html.page-navy .bud-footer-link
         <label>Amount<div class="bud-money-in"><span>$</span><input type="number" inputmode="decimal" min="0" step="0.01" id="expAmt" placeholder="0.00"></div></label>
         <label>Date<input type="date" id="expDate" class="cal-input" style="margin-top:0"></label>
       </div>
-      <label>Note <small>(optional)</small><input type="text" id="expNote" class="cal-input" style="margin-top:0" maxlength="80" placeholder="e.g. airport lunch"></label>
+      <label>Note <small>(optional)</small><input type="text" id="expNote" class="cal-input" style="margin-top:0" maxlength="80" ></label>
       <div class="exp-err" id="expErr" role="alert"></div>
       <div class="exp-actions"><button type="button" class="pay-btn" id="expSave">Save</button><button type="button" class="linkbtn" id="expCancel" style="cursor:pointer;">Cancel</button></div>
     </div>
@@ -3085,7 +3095,8 @@ function loadBudget(){
     allowance: raw.allowance!=null ? Number(raw.allowance)||0 : (cfg.defaultAllowance||0),
     mileage: raw.mileage!=null ? Number(raw.mileage)||0 : (cfg.mileageRate||0),
     track: Object.assign({gym:true, privates:true, travel:true, hotels:true, other:true}, raw.track||{}),
-    expenses: Array.isArray(raw.expenses) ? raw.expenses : []
+    expenses: Array.isArray(raw.expenses) ? raw.expenses : [],
+    over: (raw.over && typeof raw.over === 'object') ? raw.over : {}
   };
   return b;
 }
@@ -3119,37 +3130,46 @@ function budgetItems(){
   const b = loadBudget(), items = [], today = isoFromDate(new Date());
   const st = d => d <= today ? 'paid' : 'planned';
   const seasonEnd = competitions.length ? competitions.reduce((m,c)=> (c.end||c.start) > m ? (c.end||c.start) : m, today) : addDaysISO(today, 365);
-  programFees.forEach(f=> items.push({cat:'gym', label:f.label, amt:Number(f.amount)||0, date:f.date, status:st(f.date), src:'auto'}));
+  programFees.forEach((f,fi)=> items.push({key:'g:'+f.date+':'+fi, cat:'gym', label:f.label, amt:Number(f.amount)||0, date:f.date, status:st(f.date), src:'auto'}));
   loadPersonalEvents().forEach(p=>{
     if(!p.private) return;
     const amt = privateCost(p.private.type, p.private.mins);
     if(!amt) return;
-    personalEventDates(p).filter(d=>d<=seasonEnd).forEach(d=> items.push({cat:'privates', label:'Private lesson — '+p.private.type+' ('+p.private.mins+' min)', amt, date:d, status:st(d), src:'calendar'}));
+    const who = (p.title && p.title.indexOf('Private lesson —') !== 0) ? ' · '+p.title : '';
+    personalEventDates(p).filter(d=>d<=seasonEnd).forEach(d=> items.push({key:'p:'+p.id+':'+d, series:p.id, cat:'privates', label:'Private lesson — '+p.private.type+' ('+p.private.mins+' min)'+who, amt, date:d, status:st(d), src:'calendar'}));
   });
   competitions.forEach(c=>{
     if(c.attending===false) return;
     const slug = slugify(c.name), end = c.end||c.start;
-    if(c.entryFee) items.push({cat:'other', label:c.name+' — entry fee', amt:Number(c.entryFee)||0, date:c.start, status:st(c.start), src:'auto', comp:slug});
+    if(c.entryFee) items.push({key:'e:'+slug, cat:'other', label:c.name+' — entry fee', amt:Number(c.entryFee)||0, date:c.start, status:st(c.start), src:'auto', comp:slug});
     if(b.allowance > 0){
       const days = compDays(c), est = b.allowance*days;
       const actual = b.expenses.filter(e=>e.comp===slug && expType(e.type).allow).reduce((s,e)=>s+e.amt,0);
       const over = end < today;
       let rest = Math.max(0, est-actual);
       if(over && actual>0) rest = 0;
-      if(rest > 0) items.push({cat:'other', label:c.name+' — spending allowance ('+days+' day'+(days>1?'s':'')+(actual>0?', left':'')+')', amt:rest, date:c.start, status: over?'paid':'planned', src:'estimate', comp:slug});
+      if(rest > 0) items.push({key:'a:'+slug, cat:'other', label:c.name+' — spending allowance ('+days+' day'+(days>1?'s':'')+(actual>0?', left':'')+')', amt:rest, date:c.start, status: over?'paid':'planned', src:'estimate', comp:slug});
     }
   });
   b.expenses.forEach(e=>{
     const t = expType(e.type), cn = e.comp && compBySlug(e.comp);
-    items.push({cat:t.cat, label:t.label+(cn?' — '+cn.name:'')+(e.note?' · '+e.note:''), amt:Number(e.amt)||0, date:e.date, status:'paid', src:'you', id:e.id, comp:e.comp||'', type:e.type});
+    items.push({key:'x:'+e.id, cat:t.cat, label:t.label+(cn?' — '+cn.name:'')+(e.note?' · '+e.note:''), amt:Number(e.amt)||0, date:e.date, status:'paid', src:'you', id:e.id, comp:e.comp||'', type:e.type});
+  });
+  items.forEach(i=>{
+    const o = b.over[i.key];
+    if(!o) return;
+    if(o.skip){ i.skipped = true; }
+    else if(o.amt != null){ i.orig = i.amt; i.amt = Number(o.amt)||0; i.edited = true; }
   });
   return items;
 }
 function budgetTotals(){
   const b = loadBudget();
-  const items = budgetItems().filter(i=>b.track[i.cat]);
+  const all = budgetItems().filter(i=>b.track[i.cat]);
+  const items = all.filter(i=>!i.skipped);
   const t = {spent:0, planned:0, byCat:{}, items};
-  BUDGET_CATS.forEach(c=> t.byCat[c.key] = {spent:0, planned:0, items:[]});
+  BUDGET_CATS.forEach(c=> t.byCat[c.key] = {spent:0, planned:0, items:[], removed:[]});
+  all.filter(i=>i.skipped).forEach(i=> t.byCat[i.cat].removed.push(i));
   items.forEach(i=>{
     const c = t.byCat[i.cat];
     if(i.status==='paid'){ t.spent += i.amt; c.spent += i.amt; } else { t.planned += i.amt; c.planned += i.amt; }
@@ -3271,7 +3291,7 @@ function saveExpenseFromSheet(){
   renderBudget(); renderComps();
 }
 function removeExpense(id){
-  const b = loadBudget(); b.expenses = b.expenses.filter(e=>e.id!==id); saveBudget(b);
+  const b = loadBudget(); b.expenses = b.expenses.filter(e=>e.id!==id); saveBudget(b); if(budEditKey==='x:'+id) budEditKey = null;
   renderBudget(); renderComps();
 }
 
@@ -3314,6 +3334,24 @@ function budgetSettingsHtml(b, first){
     (first ? '<button type="button" class="pay-btn bud-start" data-bud-act="start">Start tracking</button>' : '')+
   '</div>';
 }
+let budOpen = new Set(), budSettingsOpen = false, budEditKey = null;
+function budItemHtml(i){
+  const editing = budEditKey === i.key;
+  const canRemove = true;
+  let row = '<div class="bud-item'+(i.skipped?' gone':'')+'"><span class="bud-item-d">'+fmtDate(i.date)+'</span><span class="bud-item-l">'+bEsc(i.label)+
+    (i.src==='estimate'?' <em>est.</em>':'')+(i.edited?' <em>edited</em>':'')+(i.status==='planned'&&i.src!=='estimate'&&i.src!=='you'?' <em>upcoming</em>':'')+'</span>'+
+    '<button type="button" class="bud-amt-btn" data-bud-edit="'+bEsc(i.key)+'" aria-label="Change amount for '+bEsc(i.label)+'">'+bMoney(i.amt)+'</button>'+
+    (i.src==='you' ? '<button type="button" class="bud-x" data-bud-del="'+i.id+'" aria-label="Remove">×</button>' : '<button type="button" class="bud-x" data-bud-skip="'+bEsc(i.key)+'" aria-label="Remove this one">×</button>')+'</div>';
+  if(editing){
+    row += '<div class="bud-edit"><label class="bud-field">Your share of this one<div class="bud-money-in"><span>$</span><input type="number" inputmode="decimal" min="0" step="0.01" id="budEditAmt" value="'+(Math.round(i.amt*100)/100)+'"></div></label>'+
+      '<small class="bud-edit-note">Splitting with another parent? Enter just your half.'+(i.edited?' Original amount: '+bMoney(i.orig,true)+'.':'')+'</small>'+
+      '<div class="bud-edit-actions"><button type="button" class="bud-tbtn" data-bud-act="edit-save" data-key="'+bEsc(i.key)+'">Save</button>'+
+      (i.series ? '<button type="button" class="bud-tbtn ghost" data-bud-act="edit-series" data-key="'+bEsc(i.key)+'">Save for this and all later</button>' : '')+
+      (i.edited ? '<button type="button" class="bud-tbtn ghost" data-bud-act="edit-reset" data-key="'+bEsc(i.key)+'">Back to '+bMoney(i.orig,true)+'</button>' : '')+
+      '<button type="button" class="bud-link" data-bud-act="edit-cancel">Cancel</button></div></div>';
+  }
+  return row;
+}
 function renderBudget(){
   const root = document.getElementById('budgetRoot');
   if(!root) return;
@@ -3349,21 +3387,16 @@ function renderBudget(){
   BUDGET_CATS.forEach(c=>{
     const on = b.track[c.key], x = t.byCat[c.key], tot = x.spent + x.planned;
     const sp = tot ? x.spent/maxCat*100 : 0, pp = tot ? x.planned/maxCat*100 : 0;
-    let items = x.items.slice().sort((a,b2)=>a.date<b2.date?-1:1);
-    const grouped = {}; const gi = [];
-    items.forEach(i=>{ if(i.src==='calendar'){ const g = grouped[i.label] = grouped[i.label] || {cat:i.cat, label:i.label, amt:0, date:i.date, status:'planned', src:'calendar', n:0, done:0}; g.amt += i.amt; g.n++; if(i.status==='paid') g.done++; } else gi.push(i); });
-    Object.values(grouped).forEach(g=>{ if(g.n>1){ g.label += ' × '+g.n+(g.done?' ('+g.done+' done)':''); g.status = g.done===g.n ? 'paid' : 'planned'; } else { g.status = g.done ? 'paid' : 'planned'; } gi.push(g); });
-    items = gi.sort((a,b2)=>a.date<b2.date?-1:1);
-    html += '<details class="bud-cat'+(on?'':' off')+'"><summary>'+
+    const items = x.items.slice().sort((a,b2)=>a.date<b2.date?-1:1);
+    html += '<details class="bud-cat'+(on?'':' off')+'" data-cat="'+c.key+'"'+(budOpen.has(c.key)?' open':'')+'><summary>'+
       '<span class="bud-switch" data-stop="1"><input type="checkbox" data-bud-cat="'+c.key+'" '+(on?'checked':'')+' aria-label="Track '+c.label+'"><span class="bud-slider"></span></span>'+
       '<span class="bud-cat-main"><span class="bud-cat-name">'+c.label+'</span>'+
       (on ? '<span class="bud-cat-sub">'+bWhole(x.spent)+' spent'+(x.planned?' · '+bWhole(x.planned)+' coming':'')+'</span>' : '<span class="bud-cat-sub">Not tracking</span>')+'</span>'+
       (on ? '<span class="bud-cat-tot">'+bWhole(tot)+'</span>' : '')+
       '<span class="bud-chev" aria-hidden="true">›</span></summary>'+
       (on ? '<div class="bud-minibar"><span class="bud-bar-spent" style="width:'+sp+'%"></span><span class="bud-bar-plan" style="width:'+pp+'%"></span></div>' : '')+
-      '<div class="bud-items">'+(on ? (items.length ? items.map(i=>
-        '<div class="bud-item"><span class="bud-item-d">'+fmtDate(i.date)+'</span><span class="bud-item-l">'+bEsc(i.label)+(i.src==='estimate'?' <em>est.</em>':'')+(i.status==='planned'&&i.src!=='estimate'&&!i.n?' <em>upcoming</em>':'')+'</span><b>'+bMoney(i.amt)+'</b>'+
-        (i.id?'<button type="button" class="bud-x" data-bud-del="'+i.id+'" aria-label="Remove">×</button>':'<span class="bud-x-sp"></span>')+'</div>').join('') : '<div class="bud-empty">Nothing here yet.</div>') : '<div class="bud-empty">Switch on to count '+c.label.toLowerCase()+' in your budget.</div>')+'</div>'+
+      '<div class="bud-items">'+(on ? (items.length ? items.map(i=>budItemHtml(i)).join('') : '<div class="bud-empty">Nothing here yet.</div>') : '<div class="bud-empty">Switch on to count '+c.label.toLowerCase()+' in your budget.</div>')+
+        (on && x.removed.length ? '<div class="bud-removed">'+x.removed.length+' removed · <button type="button" class="bud-link" data-bud-act="restore" data-cat="'+c.key+'">Put them back</button></div>' : '')+'</div>'+
     '</details>';
   });
   html += '</div>';
@@ -3399,7 +3432,7 @@ function renderBudget(){
 
   /* settings & tools */
   html += '<div class="section-title">Settings &amp; tools</div><div class="card bud-tools">'+
-    '<details><summary>Budget settings</summary>'+budgetSettingsHtml(b,false)+'</details>'+
+    '<details'+(budSettingsOpen?' open':'')+'><summary>Budget settings</summary>'+budgetSettingsHtml(b,false)+'</details>'+
     '<div class="bud-tool-row"><button type="button" class="bud-btn" data-bud-act="copy">Copy for a spreadsheet</button><button type="button" class="bud-btn" data-bud-act="csv">Download CSV</button></div>'+
     '<div class="note bud-note"><b>How this works.</b> Gym fees, private lessons (added on the Calendar; weekly ones count through the last comp unless you set a “repeat until” date) and comp entry fees fill in automatically. Your daily spending allowance is counted for every comp until you log real spending for it. Anything you add counts as spent right away. This is a personal tracker with estimates, not financial advice, and it is saved only on this device, so it will not sync to another phone.</div>'+
     '<div class="bud-tool-row"><button type="button" class="bud-btn quiet" data-bud-act="off">Turn off budget tracking</button><button type="button" class="bud-btn danger" data-bud-act="erase">Erase my budget data</button></div>'+
@@ -3420,6 +3453,10 @@ function budgetCsv(){ return budgetRows().map(r=>r.map(v=>'"'+String(v).replace(
   root.addEventListener('click', e=>{
     const del = e.target.closest('[data-bud-del]');
     if(del){ removeExpense(del.dataset.budDel); return; }
+    const skip = e.target.closest('[data-bud-skip]');
+    if(skip){ const b0 = loadBudget(); b0.over[skip.dataset.budSkip] = {skip:true}; saveBudget(b0); if(budEditKey===skip.dataset.budSkip) budEditKey = null; renderBudget(); renderComps(); return; }
+    const edt = e.target.closest('[data-bud-edit]');
+    if(edt){ budEditKey = (budEditKey===edt.dataset.budEdit) ? null : edt.dataset.budEdit; renderBudget(); const f = document.getElementById('budEditAmt'); if(f){ f.focus(); f.select(); } return; }
     const act = e.target.closest('[data-bud-act]');
     if(!act) return;
     const a = act.dataset.budAct, b = loadBudget();
@@ -3427,7 +3464,20 @@ function budgetCsv(){ return budgetRows().map(r=>r.map(v=>'"'+String(v).replace(
     else if(a==='goal'){ b.setupDone = b.setupDone; const d = root.querySelector('details.bud-tools-d'); const det = root.querySelector('.bud-tools details'); if(det){ det.open = true; det.scrollIntoView({behavior:'smooth', block:'center'}); const g=document.getElementById('budGoal'); if(g) setTimeout(()=>g.focus(),350); } }
     else if(a==='start'){ b.setupDone = true; saveBudget(b); renderBudget(); window.scrollTo(0,0); }
     else if(a==='off'){ setBudgetEnabled(false); }
-    else if(a==='erase'){ if(confirm('Erase everything in your budget (goal, settings and every expense you added)? This cannot be undone.')){ try{ localStorage.removeItem(BUDGET_KEY); }catch(err){} syncBudgetUI(); renderHero(); renderBudget(); renderComps(); goTab('home'); } }
+    else if(a==='edit-cancel'){ budEditKey = null; renderBudget(); }
+    else if(a==='restore'){ const cat = act.dataset.cat; budgetItems().filter(i=>i.cat===cat && i.skipped).forEach(i=>{ delete b.over[i.key]; }); saveBudget(b); renderBudget(); renderComps(); }
+    else if(a==='edit-save' || a==='edit-series' || a==='edit-reset'){
+      const key = act.dataset.key, input = document.getElementById('budEditAmt');
+      const item = budgetItems().find(i=>i.key===key);
+      if(!item){ budEditKey = null; renderBudget(); return; }
+      const amt = input ? Math.max(0, Math.round((parseFloat(input.value)||0)*100)/100) : item.amt;
+      if(a==='edit-reset'){ delete b.over[key]; }
+      else if(item.src==='you'){ const ex = b.expenses.find(x=>x.id===item.id); if(ex) ex.amt = amt; }
+      else if(a==='edit-series' && item.series){ budgetItems().filter(i=>i.series===item.series && i.date>=item.date).forEach(i=>{ b.over[i.key] = {amt}; }); }
+      else { b.over[key] = {amt}; }
+      saveBudget(b); budEditKey = null; renderBudget(); renderComps();
+    }
+    else if(a==='erase'){ if(confirm('Erase everything in your budget (goal, settings and every expense you added)? This cannot be undone.')){ try{ localStorage.removeItem(BUDGET_KEY); }catch(err){} budOpen.clear(); budEditKey = null; syncBudgetUI(); renderHero(); renderBudget(); renderComps(); goTab('home'); } }
     else if(a==='copy'){
       const text = budgetRows().map(r=>r.join('\t')).join('\n');
       const done = ()=>{ act.textContent = 'Copied ✓'; setTimeout(()=>{ act.textContent = 'Copy for a spreadsheet'; }, 1800); };
@@ -3443,6 +3493,13 @@ function budgetCsv(){ return budgetRows().map(r=>r.map(v=>'"'+String(v).replace(
       }catch(err){}
     }
   });
+  root.addEventListener('toggle', e=>{
+    const d = e.target;
+    if(!d || !d.classList) return;
+    if(d.classList.contains('bud-cat')){ if(d.open) budOpen.add(d.dataset.cat); else budOpen.delete(d.dataset.cat); }
+    else if(d.parentElement && d.parentElement.classList.contains('bud-tools')){ budSettingsOpen = d.open; }
+  }, true);
+  root.addEventListener('keydown', e=>{ if(e.key==='Enter' && e.target.id==='budEditAmt'){ const sv = root.querySelector('[data-bud-act="edit-save"]'); if(sv) sv.click(); } if(e.key==='Escape' && budEditKey){ budEditKey = null; renderBudget(); } });
   root.addEventListener('change', e=>{
     const b = loadBudget(), el = e.target;
     if(el.dataset && el.dataset.budCat){ b.track[el.dataset.budCat] = el.checked; saveBudget(b); renderBudget(); renderComps(); return; }
@@ -3465,7 +3522,18 @@ function budgetCsv(){ return budgetRows().map(r=>r.map(v=>'"'+String(v).replace(
     if(!res.cands.length){ box.innerHTML = '<div class="bud-empty">Couldn’t find a dollar amount in that text. You can type it in above.</div>'; return; }
     box.innerHTML = '<div class="bud-cand-h">Tap the one you paid:</div>' + res.cands.map(c=>'<button type="button" class="bud-cand" data-amt="'+c.amt+'"><b>'+bMoney(c.amt,true)+'</b><small>'+bEsc(c.label||'amount found')+'</small></button>').join('');
     if(res.conf && !document.getElementById('expNote').value) document.getElementById('expNote').value = 'Conf. '+res.conf;
+    if(res.cands[0].score>=3 && (res.cands.length===1 || res.cands[1].score<3)){ document.getElementById('expAmt').value = res.cands[0].amt; const first = box.querySelector('.bud-cand'); if(first) first.classList.add('sel'); }
   });
+  const clip = document.getElementById('expClip');
+  if(clip && navigator.clipboard && navigator.clipboard.readText){
+    clip.hidden = false;
+    clip.addEventListener('click', ()=>{
+      navigator.clipboard.readText().then(txt=>{
+        document.getElementById('expPaste').value = txt || '';
+        document.getElementById('expFind').click();
+      }).catch(()=>{ document.getElementById('expCands').innerHTML = '<div class="bud-empty">Your phone wouldn’t share the clipboard. Press and hold in the box above and choose Paste instead.</div>'; });
+    });
+  }
   document.getElementById('expCands').addEventListener('click', e=>{
     const c = e.target.closest('.bud-cand'); if(!c) return;
     document.getElementById('expAmt').value = c.dataset.amt;
@@ -3485,7 +3553,7 @@ function budgetCsv(){ return budgetRows().map(r=>r.map(v=>'"'+String(v).replace(
   mSel.innerHTML = privateLengths().map(m=>'<option value="'+m+'">'+m+' minutes</option>').join('');
   function upd(){
     pw.style.display = kind.value==='private' ? 'flex' : 'none';
-    document.getElementById('calFormTitle').placeholder = kind.value==='private' ? 'Optional — we’ll name it for you' : 'e.g. Doctor appointment';
+    document.getElementById('calFormTitle').placeholder = kind.value==='private' ? 'Coach or note (optional), e.g. Coach Jay' : 'e.g. Doctor appointment';
     const p = privateCost(tSel.value, Number(mSel.value));
     price.textContent = p ? ('Price: '+bMoney(p)+(budgetOn() ? ' · counted in your budget' : ' · turn on “Track my budget” on Home to count it')) : 'No price set for that combination.';
   }
