@@ -4,7 +4,7 @@
 // Icons, pictures and the manifest use stale-while-revalidate.
 // If you ever need every phone to drop its saved copy, change the version number below.
 
-const CACHE_NAME = 'nova-hub-v5';
+const CACHE_NAME = 'nova-hub-v6';
 const CORE_ASSETS = [
   './',
   './index.html',

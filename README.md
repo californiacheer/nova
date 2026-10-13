@@ -47,6 +47,18 @@ The app ships with **sample data** so you can see how everything looks. Replace 
 
 In `tabs: { ... }`, set any tab to `false` to hide it. Photos is off by default; turn it on after adding images to the `photos` list.
 
+### The optional Budget tab
+
+Parents can switch on a private budget tracker with the "Track my budget" switch inside the Next payment card on the Home tab. It adds a Budget tab at the end. Everything they enter is saved only on their own phone.
+
+What fills in by itself: the gym fees in `programFees` (past dates count as "spent", future dates as "coming up"), private lessons added on the Calendar, comp entry fees you give a competition (`entryFee:85`), and a daily spending allowance for food and fun on every trip. Parents add flights, hotels, gas and anything else with the "+ Add expense" button. For flights and hotels they can paste a confirmation email and the app suggests the total (the text is read on their phone and goes nowhere).
+
+In the `budget` settings near the top of `index.html`: set your gym's private lesson prices (`privateRates`), the default cost per mile, and the default daily allowance. To remove the whole feature, set `budget: false` in the `tabs` list.
+
+### The disclaimer at the bottom
+
+Every page ends with a short notice and a "Read the full disclaimer" link. Edit the wording in the `disclaimer` settings. Use `type: "independent"` while the app is not run by a gym. If a gym is giving the app to its own families, switch to `type: "official"` and put the gym name in `entity`. This is general-purpose wording, not legal advice. Have a lawyer read it before you rely on it.
+
 ### The "Suggest Update" form
 
 Create a free form in Jotform or Google Forms, copy its embed/share link, and paste it into `suggestFormUrl`. Parents then submit news from inside the app, and you add approved items to the **Latest updates** list. Until you add a link, the tab shows a sample form so you can see how it will look (it doesn't send anything). You can also hide the tab.
